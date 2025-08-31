@@ -1,6 +1,7 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCommentAlt } from "@fortawesome/free-solid-svg-icons";
 import "./Alert.scss";
+import React from 'react';
 
 const Alert = ({ messageAlert }) => {
   return (

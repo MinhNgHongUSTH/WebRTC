@@ -13,6 +13,7 @@ import {
 import "./CallPageFooter.scss";
 import { useState, useEffect } from "react";
 import { formatDate } from "../../../utils/helpers";
+import React from 'react';
 
 
 const CallPageFooter = ({

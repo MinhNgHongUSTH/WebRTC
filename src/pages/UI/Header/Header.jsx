@@ -8,6 +8,7 @@ import { doc, setDoc, getDocs, collection, getDoc } from "firebase/firestore";
 import { GoogleLogin, googleLogout } from "@react-oauth/google";
 import { UserContext } from "../../../UserContext";
 import { useNavigate } from 'react-router-dom';
+import React from 'react';
 
 const Header = () => {
   const { user, setUser, isAdmin, setIsAdmin } = useContext(UserContext);

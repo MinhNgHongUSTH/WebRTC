@@ -2,6 +2,7 @@ import { createContext, useEffect, useState } from "react";
 import { getCookie } from "./utils/cookieUtils";
 import { db } from "./firebaseConfig";
 import { doc, getDoc } from "firebase/firestore";
+import React from 'react';
 
 export const UserContext = createContext();
 

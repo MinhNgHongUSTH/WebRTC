@@ -5,10 +5,11 @@ import {
   faShieldAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import "./MeetingInfo.scss";
+import React from 'react';
 
 const MeetingInfo = ({ setMeetInfoPopup }) => {
   const callId = localStorage.getItem("meetingID");
-  const roomUrl = `http://192.168.0.70:3000/MeetingID=${callId}`;
+  const roomUrl = `${callId}`;
 
   return (
     <div className="meeting-info-block">

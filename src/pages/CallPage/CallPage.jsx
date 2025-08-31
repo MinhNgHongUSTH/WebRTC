@@ -1,275 +1,205 @@
-import { useEffect, useReducer, useRef, useState } from "react";
-import { useParams, useNavigate } from 'react-router-dom';
-import { getRequest, postRequest } from "./../../utils/apiRequests";
+// src/pages/CallPage.jsx
+import React, { useEffect, useReducer, useContext, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import socket from "../../socket";
+import Peer from "simple-peer-light";
+import { UserContext } from "../../UserContext";
+
 import {
     BASE_URL,
     GET_CALL_ID,
     SAVE_CALL_ID,
 } from "../../utils/apiEndpoints";
-import socket from "../../socket";
-import Peer from "simple-peer-light";
-import "./CallPage.scss";
-import Messenger from "./../UI/Messenger/Messenger";
-import MessageListReducer from "../../reducers/MessageListReducer";
-import Alert from "../UI/Alert/Alert";
-import MeetingInfo from "../UI/MeetingInfo/MeetingInfo";
-import CallPageFooter from "../UI/CallPageFooter/CallPageFooter";
+import { postRequest, getRequest } from "../../utils/apiRequests";
+import { getCookie } from "../../utils/cookieUtils";
 
 const initialState = [];
+function usersReducer(state, action) {
+    switch (action.type) {
+        case "SET_USERS":
+            return action.payload;
+        default:
+            return state;
+    }
+}
 
-const CallPage = () => {
-    const peerRef = useRef(null);
+
+export default function CallPage() {
+    const { id: roomId } = useParams();
     const navigate = useNavigate();
-    const { id } = useParams();
-    const isAdmin = window.location.hash === "#init";
-    const url = `${window.location.origin}${window.location.pathname}`;
-    const videoRef = useRef(null);
-    let alertTimeout = null;
+    const { user } = useContext(UserContext);
+    const [users, dispatch] = useReducer(usersReducer, initialState);
 
-    const [messageList, messageListReducer] = useReducer(
-        MessageListReducer,
-        initialState
-    );
+    const localVideoRef = useRef(null);
+    const localStreamRef = useRef(null);
 
-    const [streamObj, setStreamObj] = useState();
-    const [screenCastStream, setScreenCastStream] = useState();
-    const [meetInfoPopup, setMeetInfoPopup] = useState(false);
-    const [isPresenting, setIsPresenting] = useState(false);
-    const [isMessenger, setIsMessenger] = useState(false);
-    const [messageAlert, setMessageAlert] = useState({});
-    const [isAudio, setIsAudio] = useState(true);
-    const [isVideo, setIsVideo] = useState(true);
-    const [isPeerConnected, setIsPeerConnected] = useState(false);
+    const [peers, setPeers] = useState({});
+    const [remoteStreams, setRemoteStreams] = useState({});
 
     useEffect(() => {
-        if (isAdmin) {
-            setMeetInfoPopup(true);
-        }
-        initWebRTC();
+        if (!roomId || !user || !localStreamRef.current) return;
 
-        socket.on("code", (data) => {
-            if (data.url === url && peerRef.current) {
-                peerRef.current.signal(data.code);
+        const role = localStorage.getItem("role") || "guest";
+        const token = getCookie("token");
+
+        const joinRoomAPI = async () => {
+            try {
+                await postRequest(`${BASE_URL}${SAVE_CALL_ID}`, {
+                    roomId,
+                    username: user.name,
+                    role,
+                    token,
+                });
+
+                const res = await getRequest(`${BASE_URL}${GET_CALL_ID}?roomId=${roomId}`);
+                if (!res.error && res.users) {
+                    dispatch({ type: "SET_USERS", payload: res.users });
+                }
+
+                socket.emit("room:join", { roomId, username: user.name, role });
+            } catch (err) {
+                console.error("❌ API lỗi:", err);
+            }
+        };
+
+        joinRoomAPI();
+
+        const onUsers = (list) => {
+            dispatch({ type: "SET_USERS", payload: list });
+            list.forEach((u) => {
+                if (u.id !== socket.id && !peers[u.id]) {
+                    const peer = createPeer(true, u.id);
+                    setPeers((prev) => ({ ...prev, [u.id]: peer }));
+                }
+            });
+        };
+
+        socket.on("room:users", onUsers);
+
+        socket.on("webrtc:offer", ({ from, offer }) => {
+            if (!peers[from]) {
+                const peer = createPeer(false, from);
+                setPeers((prev) => ({ ...prev, [from]: peer }));
+                peer.signal(offer);
+            } else {
+                peers[from].signal(offer);
             }
         });
+
+        socket.on("webrtc:answer", ({ from, answer }) => {
+            peers[from]?.signal(answer);
+        });
+
+        socket.on("webrtc:ice-candidate", ({ from, candidate }) => {
+            peers[from]?.signal(candidate);
+        });
+
+        return () => {
+            socket.emit("room:leave", { roomId });
+            socket.off("room:users", onUsers);
+        };
+    }, [roomId, user, localStreamRef.current]);
+
+    useEffect(() => {
+        const startStream = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true,
+                });
+                localStreamRef.current = stream;
+                if (localVideoRef.current) {
+                    localVideoRef.current.srcObject = stream;
+                }
+            } catch (e) {
+                console.error("🚨 Không lấy được camera/mic:", e);
+            }
+        };
+        startStream();
     }, []);
 
-    const getRecieverCode = async () => {
-        const response = await getRequest(`${BASE_URL}${GET_CALL_ID}/${id}`);
-        if (response.code) {
-            peerRef.current.signal(response.code);
-        }
+    const createPeer = (initiator, targetId) => {
+        const peer = new Peer({
+            initiator,
+            trickle: true, // gửi ICE candidate ngay khi có
+            stream: localStreamRef.current,
+            config: {
+                iceServers: [
+                    { urls: "stun:stun.l.google.com:19302" }, // chỉ STUN cho LAN
+                ],
+            },
+        });
+
+        peer.on("signal", (data) => {
+            if (data.type === "offer") {
+                socket.emit("webrtc:offer", { to: targetId, offer: data });
+            } else if (data.type === "answer") {
+                socket.emit("webrtc:answer", { to: targetId, answer: data });
+            } else if (data.candidate) {
+                socket.emit("webrtc:ice-candidate", { to: targetId, candidate: data });
+            }
+        });
+
+        peer.on("stream", (remoteStream) => {
+            console.log("📹 Nhận remote stream từ", targetId);
+            setRemoteStreams((prev) => ({
+                ...prev,
+                [targetId]: remoteStream,
+            }));
+        });
+
+        return peer;
     };
 
-    const initWebRTC = () => {
-        navigator.mediaDevices
-            .getUserMedia({ video: true, audio: true })
-            .then((stream) => {
-                setStreamObj(stream);
+    const isHost = (u) => u.role === "host";
 
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    videoRef.current.onloadedmetadata = () => {
-                        videoRef.current.play().catch((err) => {
-                            console.warn("Autoplay error:", err);
-                        });
-                    };
-                }
-
-                peerRef.current = new Peer({
-                    initiator: isAdmin,
-                    trickle: false,
-                    stream: stream,
-                });
-
-                if (!isAdmin) {
-                    getRecieverCode();
-                }
-
-                peerRef.current.on("signal", async (data) => {
-                    if (isAdmin) {
-                        let payload = { id, signalData: data };
-                        await postRequest(`${BASE_URL}${SAVE_CALL_ID}`, payload);
-                    } else {
-                        socket.emit("code", { code: data, url }, () => {
-                            console.log("code sent");
-                        });
-                    }
-                });
-
-                peerRef.current.on("connect", () => {
-                    console.log("Peer connected!");
-                    setIsPeerConnected(true);
-                });
-
-                peerRef.current.on("data", (data) => {
-                    console.log("Received message:", data.toString());
-
-                    clearTimeout(alertTimeout);
-                    messageListReducer({
-                        type: "addMessage",
-                        payload: {
-                            user: "other",
-                            msg: data.toString(),
-                            time: Date.now(),
-                        },
-                    });
-
-                    setMessageAlert({
-                        alert: true,
-                        isPopup: true,
-                        payload: {
-                            user: "other",
-                            msg: data.toString(),
-                        },
-                    });
-
-                    alertTimeout = setTimeout(() => {
-                        setMessageAlert({
-                            ...messageAlert,
-                            isPopup: false,
-                            payload: {},
-                        });
-                    }, 10000);
-                });
-
-                peerRef.current.on("stream", (remoteStream) => {
-                    console.log("Remote stream received");
-                });
-            })
-            .catch((err) => {
-                console.error("getUserMedia error", err);
-            });
-    };
-
-    const sendMsg = (msg) => {
-        if (isPeerConnected && peerRef.current) {
-            peerRef.current.send(msg);
-            messageListReducer({
-                type: "addMessage",
-                payload: {
-                    user: "you",
-                    msg: msg,
-                    time: Date.now(),
-                },
-            });
-        } else {
-            console.warn("Cannot send: Peer connection not ready.");
-        }
-    };
-
-    const screenShare = () => {
-        navigator.mediaDevices
-            .getDisplayMedia({ cursor: true })
-            .then((screenStream) => {
-                peerRef.current.replaceTrack(
-                    streamObj.getVideoTracks()[0],
-                    screenStream.getVideoTracks()[0],
-                    streamObj
-                );
-                setScreenCastStream(screenStream);
-
-                screenStream.getTracks()[0].onended = () => {
-                    peerRef.current.replaceTrack(
-                        screenStream.getVideoTracks()[0],
-                        streamObj.getVideoTracks()[0],
-                        streamObj
-                    );
-                };
-
-                setIsPresenting(true);
-            })
-            .catch((err) => {
-                console.warn("User cancelled screen share or error occurred:", err);
-            });
-    };
-
-    const stopScreenShare = () => {
-        screenCastStream.getVideoTracks().forEach((track) => track.stop());
-        peerRef.current.replaceTrack(
-            screenCastStream.getVideoTracks()[0],
-            streamObj.getVideoTracks()[0],
-            streamObj
+    if (!user) {
+        return (
+            <div style={{ padding: 20 }}>
+                <h2>🚨 Bạn cần đăng nhập để tham gia phòng</h2>
+                <button onClick={() => navigate("/")}>⬅️ Quay lại</button>
+            </div>
         );
-        setIsPresenting(false);
-    };
-
-    const toggleAudio = (value) => {
-        streamObj.getAudioTracks()[0].enabled = value;
-        setIsAudio(value);
-    };
-
-    const toggleVideo = (state) => {
-        setIsVideo(state);
-        if (videoRef.current) {
-            videoRef.current.srcObject.getVideoTracks().forEach(track => {
-                track.enabled = state;
-            });
-        }
-    };
-
-    const disconnectCall = () => {
-        if (peerRef.current) {
-            peerRef.current.destroy();
-        }
-        navigate("/");
-        window.location.reload();
-    };
+    }
 
     return (
-        <div className="callpage-container">
+        <div style={{ padding: 20 }}>
+            <h2>📹 Meeting Room: {roomId}</h2>
+
+            <h4>🖥️ Màn hình của bạn</h4>
             <video
-                className="video-container"
-                ref={videoRef}
+                ref={localVideoRef}
                 autoPlay
-                playsInline
                 muted
+                playsInline
+                style={{ width: 250, border: "2px solid green", marginBottom: 10 }}
             />
 
-            <div className="call-footer">
-                <CallPageFooter
-                    isPresenting={isPresenting}
-                    stopScreenShare={stopScreenShare}
-                    screenShare={screenShare}
-                    isAudio={isAudio}
-                    toggleAudio={toggleAudio}
-                    disconnectCall={disconnectCall}
-                    isMessenger={isMessenger}
-                    setIsMessenger={setIsMessenger}
-                    messageAlert={messageAlert}
-                    setMessageAlert={setMessageAlert}
-                    isVideo={isVideo}
-                    toggleVideo={toggleVideo}
-                    setMeetInfoPopup={setMeetInfoPopup}
-                    meetInfoPopup={meetInfoPopup}
-                    isAdmin={isAdmin}
-                />
+            <h4>👥 Người trong phòng:</h4>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                {users.length === 0 && <div>⚠️ Chưa có ai trong phòng</div>}
+                {users.map((u) =>
+                    u.id !== socket.id ? (
+                        <div key={u.id} style={{ textAlign: "center" }}>
+                            <p>
+                                {u.name} {isHost(u) ? "👑" : ""}
+                            </p>
+                            <video
+                                autoPlay
+                                playsInline
+                                style={{ width: 250, border: "1px solid #ccc" }}
+                                ref={(el) => {
+                                    if (el && remoteStreams[u.id]) {
+                                        el.srcObject = remoteStreams[u.id];
+                                    }
+                                }}
+                            />
+                        </div>
+                    ) : null
+                )}
             </div>
 
-            {isAdmin && meetInfoPopup && (
-                <div className="meeting-info">
-                    <MeetingInfo setMeetInfoPopup={setMeetInfoPopup} url={url} />
-                </div>
-            )}
-
-            {isMessenger ? (
-                <div className="messenger">
-                    <Messenger
-                        setIsMessenger={setIsMessenger}
-                        sendMsg={sendMsg}
-                        messageList={messageList}
-                        disabled={!isPeerConnected} // optional
-                    />
-                </div>
-            ) : (
-                messageAlert.isPopup && (
-                    <div className="popup">
-                        <Alert messageAlert={messageAlert} />
-                    </div>
-                )
-            )}
+            <button onClick={() => navigate("/")}>⬅️ Rời phòng</button>
         </div>
     );
-};
-
-export default CallPage;
+}

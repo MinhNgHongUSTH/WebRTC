@@ -4,26 +4,37 @@ import { faVideo, faKeyboard } from "@fortawesome/free-solid-svg-icons";
 import shortid from "shortid";
 import "./HomePage.scss";
 import Header from "../UI/Header/Header";
-import { useContext } from "react"; 
+import { useContext, useRef } from "react"; 
 import { UserContext } from "../../UserContext"; 
-import { useRef } from "react";
-
 
 const HomePage = () => {
   const navigate = useNavigate();
   const { user } = useContext(UserContext); 
-  
+  const inputRef = useRef(null);
+
   const startCall = () => {
     const uid = shortid.generate();
     localStorage.setItem("meetingID", uid); 
-    navigate(`/mettingID=${uid}#init`);
+    localStorage.setItem("role", "host");
+    navigate(`/meeting/${uid}`);
   };
 
-  const inputRef = useRef(null);
   const joinMeeting = () => {
-    const id = inputRef.current.value;
-    navigate(`/mettingID=${id}#init`);
+    const id = inputRef.current.value.trim();
+    if (!id) return;
+
+    let roomId = id;
+    try {
+      const url = new URL(id);
+      roomId = url.pathname.split("/").pop();
+    } catch (e) {
+    }
+
+    localStorage.setItem("meetingID", roomId);
+    localStorage.setItem("role", "guest"); 
+    navigate(`/meeting/${roomId}`);
   };
+
   return (
     <div className="home-page">
       <Header />
@@ -45,7 +56,12 @@ const HomePage = () => {
                 <div className="input-block">
                   <div className="input-section">
                     <FontAwesomeIcon className="icon-block" icon={faKeyboard} />
-                    <input type="text" ref={inputRef} placeholder="Enter a code or link" />
+                    <input
+                      type="text"
+                      ref={inputRef}
+                      placeholder="Enter a code or link"
+                      onKeyDown={(e) => e.key === "Enter" && joinMeeting()}
+                    />
                   </div>
                   <button className="btn no-bg" onClick={joinMeeting}>Join</button>
                 </div>
@@ -61,7 +77,6 @@ const HomePage = () => {
             <img src="https://www.gstatic.com/meet/google_meet_marketing_ongoing_meeting_grid_427cbb32d746b1d0133b898b50115e96.jpg" />
           </div>
         </div>
-
       </div>
     </div>
   );

@@ -14,7 +14,6 @@ function App() {
     <UserProvider>
       <Router>
         <Routes>
-
           <Route
             path="/dashboard"
             element={
@@ -23,7 +22,6 @@ function App() {
               </PrivateRoute>
             }
           />
-
           <Route path="/meeting/:id" element={<CallPage />} />
           <Route path="/" element={<HomePage />} />
           <Route path="*" element={<NoMatch />} />

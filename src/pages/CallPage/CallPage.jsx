@@ -3,7 +3,7 @@ import React, { useEffect, useReducer, useContext, useRef, useState } from "reac
 import { useParams, useNavigate } from "react-router-dom";
 import socket from "../../socket";
 import Peer from "simple-peer-light";
-import { UserContext } from "../../UserContext";
+import { UserContext } from "../../contexts/UserContext";
 
 import {
     BASE_URL,
@@ -35,6 +35,10 @@ export default function CallPage() {
 
     const [peers, setPeers] = useState({});
     const [remoteStreams, setRemoteStreams] = useState({});
+    
+    // Media control states
+    const [isMuted, setIsMuted] = useState(false);
+    const [isVideoOff, setIsVideoOff] = useState(false);
 
     useEffect(() => {
         if (!roomId || !user || !localStreamRef.current) return;
@@ -151,6 +155,43 @@ export default function CallPage() {
         return peer;
     };
 
+    // Media control functions
+    const toggleMute = () => {
+        if (localStreamRef.current) {
+            const audioTrack = localStreamRef.current.getAudioTracks()[0];
+            if (audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+                setIsMuted(!audioTrack.enabled);
+            }
+        }
+    };
+
+    const toggleVideo = () => {
+        if (localStreamRef.current) {
+            const videoTrack = localStreamRef.current.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+                setIsVideoOff(!videoTrack.enabled);
+            }
+        }
+    };
+
+    const leaveRoom = () => {
+        // Stop all media tracks
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+        
+        // Close all peer connections
+        Object.values(peers).forEach(peer => peer.destroy());
+        
+        // Leave socket room
+        socket.emit("room:leave", { roomId });
+        
+        // Navigate back to home
+        navigate("/");
+    };
+
     const isHost = (u) => u.role === "host";
 
     if (!user) {
@@ -167,13 +208,91 @@ export default function CallPage() {
             <h2>📹 Meeting Room: {roomId}</h2>
 
             <h4>🖥️ Màn hình của bạn</h4>
-            <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                style={{ width: 250, border: "2px solid green", marginBottom: 10 }}
-            />
+            <div style={{ position: "relative", display: "inline-block" }}>
+                <video
+                    ref={localVideoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    style={{ 
+                        width: 300, 
+                        height: 200,
+                        border: "2px solid green", 
+                        marginBottom: 10,
+                        backgroundColor: isVideoOff ? "#000" : "transparent"
+                    }}
+                />
+                {isVideoOff && (
+                    <div style={{
+                        position: "absolute",
+                        top: "50%",
+                        left: "50%",
+                        transform: "translate(-50%, -50%)",
+                        color: "white",
+                        fontSize: "16px",
+                        fontWeight: "bold"
+                    }}>
+                        📹 Camera tắt
+                    </div>
+                )}
+            </div>
+
+            {/* Control buttons */}
+            <div style={{ 
+                display: "flex", 
+                gap: "10px", 
+                marginBottom: 20,
+                justifyContent: "center",
+                flexWrap: "wrap"
+            }}>
+                <button
+                    onClick={toggleMute}
+                    style={{
+                        padding: "10px 15px",
+                        border: "none",
+                        borderRadius: "5px",
+                        cursor: "pointer",
+                        backgroundColor: isMuted ? "#ff4757" : "#2ed573",
+                        color: "white",
+                        fontWeight: "bold",
+                        fontSize: "14px"
+                    }}
+                >
+                    {isMuted ? "🔇 Bật mic" : "🎤 Tắt mic"}
+                </button>
+
+                <button
+                    onClick={toggleVideo}
+                    style={{
+                        padding: "10px 15px",
+                        border: "none",
+                        borderRadius: "5px",
+                        cursor: "pointer",
+                        backgroundColor: isVideoOff ? "#ff4757" : "#2ed573",
+                        color: "white",
+                        fontWeight: "bold",
+                        fontSize: "14px"
+                    }}
+                >
+                    {isVideoOff ? "📹 Bật camera" : "📷 Tắt camera"}
+                </button>
+
+                <button
+                    onClick={leaveRoom}
+                    style={{
+                        padding: "10px 15px",
+                        border: "none",
+                        borderRadius: "5px",
+                        cursor: "pointer",
+                        backgroundColor: "#ff3838",
+                        color: "white",
+                        fontWeight: "bold",
+                        fontSize: "14px"
+                    }}
+                >
+                    📞 Rời phòng
+                </button>
+            </div>
 
             <h4>👥 Người trong phòng:</h4>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
@@ -199,7 +318,6 @@ export default function CallPage() {
                 )}
             </div>
 
-            <button onClick={() => navigate("/")}>⬅️ Rời phòng</button>
         </div>
     );
 }

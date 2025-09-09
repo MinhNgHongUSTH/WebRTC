@@ -1,10 +1,9 @@
-import { createContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { getCookie } from "./utils/cookieUtils";
 import { db } from "./firebaseConfig";
 import { doc, getDoc } from "firebase/firestore";
 import React from 'react';
-
-export const UserContext = createContext();
+import { UserContext } from "./contexts/UserContext";
 
 export const UserProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -50,5 +49,3 @@ export const UserProvider = ({ children }) => {
     </UserContext.Provider>
   );
 };
-
-export default UserContext;

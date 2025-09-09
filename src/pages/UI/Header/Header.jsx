@@ -6,7 +6,7 @@ import { jwtDecode } from "jwt-decode";
 import { db } from "../../../firebaseConfig";
 import { doc, setDoc, getDocs, collection, getDoc } from "firebase/firestore";
 import { GoogleLogin, googleLogout } from "@react-oauth/google";
-import { UserContext } from "../../../UserContext";
+import { UserContext } from "../../../contexts/UserContext";
 import { useNavigate } from 'react-router-dom';
 import React from 'react';
 

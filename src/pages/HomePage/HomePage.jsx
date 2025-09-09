@@ -5,7 +5,7 @@ import shortid from "shortid";
 import "./HomePage.scss";
 import Header from "../UI/Header/Header";
 import { useContext, useRef } from "react"; 
-import { UserContext } from "../../UserContext"; 
+import { UserContext } from "../../contexts/UserContext"; 
 
 const HomePage = () => {
   const navigate = useNavigate();
@@ -28,6 +28,7 @@ const HomePage = () => {
       const url = new URL(id);
       roomId = url.pathname.split("/").pop();
     } catch (e) {
+      console.log(e);
     }
 
     localStorage.setItem("meetingID", roomId);
